@@ -3,9 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Nfc, CreditCard, ShoppingCart, CheckCircle, AlertCircle, Loader, Smartphone, Wallet, ExternalLink, DollarSign, Zap, Network } from 'lucide-react';
 import { createThirdwebClient, getContract, prepareContractCall, sendTransaction } from "thirdweb";
-import { createWallet, injectedProvider } from "thirdweb/wallets";
 import { polygon, sepolia } from "thirdweb/chains";
-import { ConnectButton, useActiveAccount, useActiveWallet } from "thirdweb/react";
+import { ConnectButton, useActiveAccount, useActiveWallet, useConnect, useDisconnect } from "thirdweb/react";
 
 type PaymentData = {
   userWallet: string;
@@ -39,17 +38,34 @@ type NetworkConfig = {
 
 // Initialize Thirdweb client
 const client = createThirdwebClient({
-  clientId: process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID || "YOUR_CLIENT_ID_HERE"
+  clientId: process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID || "042852d11c6ddb740ca35a62807f77c3",
 });
 
 // Network configurations
 const networks: { [key: string]: NetworkConfig } = {
-  polygon: {
-    id: 137,
-    name: "Polygon",
+  polygonMumbai: {
+    id: 80001,
+    name: "Polygon Mumbai",
     currency: "MATIC",
-    chain: polygon,
-    explorerUrl: "https://polygonscan.com"
+    chain: {
+      ...polygon,
+      id: 80001,
+      name: "Mumbai",
+      nativeCurrency: {
+        name: "MATIC",
+        symbol: "MATIC",
+        decimals: 18
+      },
+      rpc: ["https://rpc-mumbai.maticvigil.com/"],
+      blockExplorers: {
+        default: {
+          name: "Mumbai Polygonscan",
+          url: "https://mumbai.polygonscan.com"
+        }
+      },
+      testnet: true
+    },
+    explorerUrl: "https://mumbai.polygonscan.com"
   },
   sepolia: {
     id: 11155111,
@@ -65,7 +81,7 @@ const X402PaymentApp = () => {
   const [nfcReading, setNfcReading] = useState(false);
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [currentStep, setCurrentStep] = useState('scan');
-  const [selectedNetwork, setSelectedNetwork] = useState<string>('polygon');
+  const [selectedNetwork, setSelectedNetwork] = useState<string>('polygonMumbai');
   const [merchantInfo, setMerchantInfo] = useState<MerchantInfo>({
     name: 'Web3 Coffee Shop',
     address: '0x2fF9c787761Ff79a30574b51f1C83d21510Fbc0e',
@@ -311,16 +327,49 @@ const X402PaymentApp = () => {
 
   // Switch network in wallet
   const switchNetwork = async (networkKey: string) => {
-    if (!activeWallet) return;
+    if (!activeWallet || !window.ethereum) return;
     
     try {
       const networkConfig = networks[networkKey];
-      await activeWallet.switchChain(networkConfig.chain);
+      const chainIdHex = `0x${networkConfig.id.toString(16)}`;
+      
+      try {
+        // First try to switch to the network
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: chainIdHex }],
+        });
+      } catch (switchError: any) {
+        // If the chain hasn't been added to MetaMask we'll add it
+        if (switchError.code === 4902) {
+          try {
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: chainIdHex,
+                chainName: networkConfig.chain.name,
+                nativeCurrency: networkConfig.chain.nativeCurrency,
+                rpcUrls: networkConfig.chain.rpc,
+                blockExplorerUrls: [networkConfig.explorerUrl]
+              }]
+            });
+          } catch (addError) {
+            console.error('Failed to add network:', addError);
+            setError('Failed to add network to wallet');
+            return;
+          }
+        } else {
+          throw switchError;
+        }
+      }
+
+      // After successful switch/add, update the UI
       setSelectedNetwork(networkKey);
       setMerchantInfo(prev => ({ ...prev, currency: networkConfig.currency }));
-    } catch (error) {
+      
+    } catch (error: any) {
       console.error('Failed to switch network:', error);
-      setError('Failed to switch network');
+      setError(error.message || 'Failed to switch network');
     }
   };
 
@@ -339,8 +388,8 @@ const X402PaymentApp = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-      <div className="container mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 overflow-x-hidden">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
         
         {/* Header */}
         <header className="text-center mb-8">
@@ -353,16 +402,16 @@ const X402PaymentApp = () => {
             NFC × Thirdweb v5 × x402
           </h1>
           <p className="text-blue-200 mb-2">Multi-Chain Payment Terminal</p>
-          <div className="flex justify-center items-center gap-4 text-sm">
-            <span className="px-3 py-1 bg-purple-600/50 rounded-full text-purple-200">Thirdweb v5</span>
-            <span className="px-3 py-1 bg-green-600/50 rounded-full text-green-200">Multi-Chain</span>
-            <span className="px-3 py-1 bg-blue-600/50 rounded-full text-blue-200">NFC Enabled</span>
+          <div className="flex flex-wrap justify-center items-center gap-2 text-sm px-4">
+            <span className="px-3 py-1 bg-purple-600/50 rounded-full text-purple-200 whitespace-nowrap">Thirdweb v5</span>
+            <span className="px-3 py-1 bg-green-600/50 rounded-full text-green-200 whitespace-nowrap">Multi-Chain</span>
+            <span className="px-3 py-1 bg-blue-600/50 rounded-full text-blue-200 whitespace-nowrap">NFC Enabled</span>
           </div>
           
           {/* Network Selector */}
           <div className="mt-4 flex justify-center">
-            <div className="bg-black/30 backdrop-blur-sm rounded-lg p-2 border border-gray-500/30">
-              <div className="flex gap-2">
+            <div className="bg-black/30 backdrop-blur-sm rounded-lg p-2 border border-gray-500/30 overflow-x-auto max-w-full">
+              <div className="flex gap-2 min-w-max">
                 {Object.entries(networks).map(([key, config]) => (
                   <button
                     key={key}
@@ -407,23 +456,38 @@ const X402PaymentApp = () => {
                 client={client}
                 theme="dark"
                 connectModal={{
+                  title: "Connect to Testnet",
                   size: "wide",
                   titleIcon: "",
                   showThirdwebBranding: false,
                 }}
-                chains={[polygon, sepolia]}
+                chains={[networks.polygonMumbai.chain, networks.sepolia.chain]}
                 switchButton={{
-                  label: "Wrong Network",
+                  label: "Switch Network",
                   style: {
-                    backgroundColor: "#dc2626",
+                    backgroundColor: "#4f46e5",
                   },
+                }}
+                onConnect={async (wallet) => {
+                  try {
+                    // Try to switch to the selected network
+                    const networkConfig = networks[selectedNetwork];
+                    if (wallet && networkConfig) {
+                      await wallet.switchChain(networkConfig.chain);
+                    }
+                  } catch (error) {
+                    console.error('Failed to switch network:', error);
+                    setError('Failed to switch network. Please try manually.');
+                  }
                 }}
               />
               {activeAccount && (
                 <div className="mt-4 p-3 bg-green-500/20 rounded-lg">
-                  <p className="text-green-300 text-sm">
-                    Connected: {activeAccount.address.slice(0, 10)}...{activeAccount.address.slice(-8)}
-                  </p>
+                  <div className="w-full overflow-hidden">
+                    <p className="text-green-300 text-sm truncate" title={activeAccount.address}>
+                      Connected: {activeAccount.address}
+                    </p>
+                  </div>
                   <p className="text-green-400 text-xs">Network: {networks[selectedNetwork].name}</p>
                 </div>
               )}
@@ -475,10 +539,10 @@ const X402PaymentApp = () => {
               {/* Demo Tools */}
               <div className="border-t border-gray-600 pt-6">
                 <h3 className="text-lg font-semibold text-white mb-4">Demo Tools</h3>
-                <div className="grid md:grid-cols-2 gap-4">
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <button
                     onClick={writeNFCTag}
-                    className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg transition-colors text-sm font-semibold"
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg transition-colors text-sm font-semibold whitespace-nowrap"
                   >
                     Write x402 NFC Card
                   </button>
@@ -491,7 +555,7 @@ const X402PaymentApp = () => {
                       });
                       setCurrentStep('payment');
                     }}
-                    className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-colors text-sm font-semibold"
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-colors text-sm font-semibold whitespace-nowrap"
                   >
                     Simulate x402 Tap
                   </button>
@@ -520,9 +584,13 @@ const X402PaymentApp = () => {
               {paymentData && (
                 <div className="bg-black/40 rounded-lg p-4 mb-6">
                   <label className="text-green-400 text-sm font-semibold">Customer Wallet (from NFC)</label>
-                  <div className="flex items-center mt-2">
-                    <Wallet className="w-5 h-5 text-green-400 mr-2" />
-                    <p className="text-white font-mono text-sm">{paymentData.userWallet}</p>
+                  <div className="flex items-center mt-2 w-full">
+                    <Wallet className="w-5 h-5 text-green-400 mr-2 flex-shrink-0" />
+                    <div className="overflow-hidden">
+                      <p className="text-white font-mono text-sm truncate" title={paymentData.userWallet}>
+                        {paymentData.userWallet}
+                      </p>
+                    </div>
                   </div>
                   <p className="text-gray-400 text-xs mt-1">Connected to {networks[selectedNetwork].name}</p>
                 </div>
@@ -532,7 +600,11 @@ const X402PaymentApp = () => {
               <div className="bg-black/40 rounded-lg p-4 mb-6">
                 <label className="text-blue-400 text-sm font-semibold">Merchant</label>
                 <p className="text-white font-semibold">{merchantInfo.name}</p>
-                <p className="text-gray-400 font-mono text-sm">{merchantInfo.address}</p>
+                <div className="w-full overflow-hidden">
+                  <p className="text-gray-400 font-mono text-sm truncate" title={merchantInfo.address}>
+                    {merchantInfo.address}
+                  </p>
+                </div>
               </div>
 
               {/* Payment Amount */}
@@ -694,10 +766,10 @@ const X402PaymentApp = () => {
             <p className="text-gray-400 text-sm mb-2">
               Multi-chain payments • NFC Integration • TypeScript
             </p>
-            <div className="flex justify-center gap-4 text-xs">
-              <span className="px-2 py-1 bg-purple-600/30 rounded text-purple-300">Polygon</span>
-              <span className="px-2 py-1 bg-blue-600/30 rounded text-blue-300">Sepolia</span>
-              <span className="px-2 py-1 bg-green-600/30 rounded text-green-300">Native Tokens</span>
+            <div className="flex flex-wrap justify-center gap-2 text-xs">
+              <span className="px-2 py-1 bg-purple-600/30 rounded text-purple-300 whitespace-nowrap">Polygon</span>
+              <span className="px-2 py-1 bg-blue-600/30 rounded text-blue-300 whitespace-nowrap">Sepolia</span>
+              <span className="px-2 py-1 bg-green-600/30 rounded text-green-300 whitespace-nowrap">Native Tokens</span>
             </div>
           </div>
         </footer>
