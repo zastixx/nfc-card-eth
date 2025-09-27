@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Nfc, CreditCard, ShoppingCart, CheckCircle, AlertCircle, Loader, Smartphone, Wallet, ExternalLink, DollarSign, Zap, Network, User, Settings } from 'lucide-react';
+import { Nfc, CreditCard, ShoppingCart, CheckCircle, AlertCircle, Loader, Smartphone, Wallet, ExternalLink, DollarSign, Zap, Network, User, Settings, Store, Building2 } from 'lucide-react';
 import { createThirdwebClient, getContract, prepareContractCall, sendTransaction } from "thirdweb";
 import { polygon, sepolia } from "thirdweb/chains";
 import { ConnectButton, useActiveAccount, useActiveWallet, useConnect, useDisconnect } from "thirdweb/react";
@@ -12,13 +12,26 @@ type PaymentData = {
   network?: string;
 };
 
+type Merchant = {
+  id: string;
+  name: string;
+  address: string;
+  description: string;
+  category: string;
+  logo?: string;
+};
+
 type MerchantInfo = {
+  id: string;
   name: string;
   address: string;
   orderId: string;
   amount: string;
   currency: string;
   x402Endpoint?: string;
+  description?: string;
+  category?: string;
+  logo?: string;
 };
 
 type NetworkConfig = {
@@ -75,7 +88,81 @@ const X402PaymentApp = () => {
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [currentStep, setCurrentStep] = useState('scan');
   const [selectedNetwork, setSelectedNetwork] = useState<string>('polygonMumbai');
+  // Define the NDEFReadingEvent type
+  type NDEFReadingEvent = {
+    message: {
+      records: Array<{
+        recordType: string;
+        data: ArrayBuffer;
+      }>;
+    };
+  };
+
+  // Initialize merchant states
+  const [selectedMerchantId, setSelectedMerchantId] = useState('1');
+  const [showMerchantForm, setShowMerchantForm] = useState(false);
+  const [newMerchant, setNewMerchant] = useState<Merchant>({
+    id: '',
+    name: '',
+    address: '',
+    description: '',
+    category: 'Food & Beverages'
+  });
+  
+  // Initial merchants data
+  const initialMerchants = [
+    {
+      id: '1',
+      name: 'Web3 Coffee Shop',
+      address: '0x2fF9c787761Ff79a30574b51f1C83d21510Fbc0e',
+      description: 'Premium coffee and pastries',
+      category: 'Food & Beverages'
+    },
+    {
+      id: '2',
+      name: 'Crypto Tech Store',
+      address: '0x3eA9B0ab7785C85983b2F4F7eB2b0c723465098B',
+      description: 'Electronics and gadgets',
+      category: 'Technology'
+    },
+    {
+      id: '3',
+      name: 'NFT Art Gallery',
+      address: '0x4dB0C7749A3eF6d6c45d94D8049859465cD537B2',
+      description: 'Digital art and collectibles',
+      category: 'Art'
+    }
+  ];
+
+  // Merchants state
+  const [merchants, setMerchants] = useState<Merchant[]>(initialMerchants);
+
+  const handleMerchantSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeAccount) {
+      setError('Please connect your wallet first');
+      return;
+    }
+    
+    const newMerchantData = {
+      ...newMerchant,
+      id: (merchants.length + 1).toString(),
+      address: activeAccount.address
+    };
+    
+    setMerchants(prev => [...prev, newMerchantData]);
+    setShowMerchantForm(false);
+    setNewMerchant({
+      id: '',
+      name: '',
+      address: '',
+      description: '',
+      category: 'Food & Beverages'
+    });
+  };
+  
   const [merchantInfo, setMerchantInfo] = useState<MerchantInfo>({
+    id: '1',
     name: 'Web3 Coffee Shop',
     address: '0x2fF9c787761Ff79a30574b51f1C83d21510Fbc0e',
     orderId: '',
@@ -184,7 +271,7 @@ const X402PaymentApp = () => {
       const ndef = new (window as any).NDEFReader();
       await ndef.scan();
       
-      ndef.addEventListener("reading", async (event) => {
+      ndef.addEventListener("reading", async (event: NDEFReadingEvent) => {
         for (const record of event.message.records) {
           if (record.recordType === "url") {
             const decoder = new TextDecoder();
@@ -486,6 +573,166 @@ const X402PaymentApp = () => {
               </div>
             </div>
           </div>
+
+          {/* Marketplace Section */}
+          <div className="mt-8 max-w-4xl mx-auto">
+            <div className="bg-black/30 backdrop-blur-sm rounded-lg p-4 border border-purple-500/30">
+              <h3 className="text-xl font-bold text-white mb-4 flex items-center justify-center">
+                <Store className="w-5 h-5 mr-2" />
+                Web3 Marketplace
+              </h3>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {merchants.map((merchant) => (
+                  <button
+                    key={merchant.id}
+                    onClick={() => {
+                      setSelectedMerchantId(merchant.id);
+                      setMerchantInfo(prev => ({
+                        ...prev,
+                        id: merchant.id,
+                        name: merchant.name,
+                        address: merchant.address
+                      }));
+                    }}
+                    className={`${
+                      selectedMerchantId === merchant.id
+                        ? 'bg-gradient-to-r from-purple-600/50 to-blue-600/50 border-purple-500'
+                        : 'bg-black/40 hover:bg-black/60 border-gray-600'
+                    } p-4 rounded-lg border transition-all duration-200`}
+                  >
+                    <div className="flex items-center mb-2">
+                      <Building2 className={`w-5 h-5 ${
+                        selectedMerchantId === merchant.id ? 'text-purple-400' : 'text-gray-400'
+                      } mr-2`} />
+                      <h4 className="font-semibold text-white">{merchant.name}</h4>
+                    </div>
+                    <p className="text-sm text-gray-400 mb-2">{merchant.description}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs px-2 py-1 bg-blue-500/20 text-blue-300 rounded">
+                        {merchant.category}
+                      </span>
+                      {selectedMerchantId === merchant.id && (
+                        <span className="text-xs px-2 py-1 bg-green-500/20 text-green-300 rounded flex items-center">
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Selected
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Register Merchant Button */}
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => setShowMerchantForm(true)}
+                  className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 inline-flex items-center"
+                >
+                  <Store className="w-4 h-4 mr-2" />
+                  Register as Merchant
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Merchant Registration Form Modal */}
+          {showMerchantForm && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full border border-purple-500/30 shadow-2xl">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold text-white flex items-center">
+                    <Store className="w-5 h-5 mr-2 text-purple-400" />
+                    Register New Merchant
+                  </h3>
+                  <button
+                    onClick={() => setShowMerchantForm(false)}
+                    className="text-gray-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleMerchantSubmit} className="space-y-4">
+                  <div>
+                    <label className="text-white text-sm font-semibold mb-2 block">
+                      Store Name
+                    </label>
+                    <input
+                      type="text"
+                      value={newMerchant.name}
+                      onChange={(e) => setNewMerchant(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Enter your store name"
+                      required
+                      className="w-full px-4 py-2 bg-black/40 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-white text-sm font-semibold mb-2 block">
+                      Store Description
+                    </label>
+                    <textarea
+                      value={newMerchant.description}
+                      onChange={(e) => setNewMerchant(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Describe your business"
+                      required
+                      className="w-full px-4 py-2 bg-black/40 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 h-24 resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-white text-sm font-semibold mb-2 block">
+                      Category
+                    </label>
+                    <select
+                      value={newMerchant.category}
+                      onChange={(e) => setNewMerchant(prev => ({ ...prev, category: e.target.value }))}
+                      className="w-full px-4 py-2 bg-black/40 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
+                      <option value="Food & Beverages">Food & Beverages</option>
+                      <option value="Technology">Technology</option>
+                      <option value="Art">Art</option>
+                      <option value="Fashion">Fashion</option>
+                      <option value="Services">Services</option>
+                      <option value="Entertainment">Entertainment</option>
+                    </select>
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-700">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-sm text-gray-400">Connected Wallet:</span>
+                      {activeAccount ? (
+                        <span className="text-green-400 text-sm font-mono">
+                          {activeAccount.address.slice(0,6)}...{activeAccount.address.slice(-4)}
+                        </span>
+                      ) : (
+                        <span className="text-red-400 text-sm">Not Connected</span>
+                      )}
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={!activeAccount}
+                      className={`w-full py-3 rounded-lg font-bold transition-all duration-200 ${
+                        !activeAccount
+                          ? 'bg-gray-600 cursor-not-allowed text-gray-400'
+                          : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white'
+                      }`}
+                    >
+                      {!activeAccount ? (
+                        'Connect Wallet to Register'
+                      ) : (
+                        <div className="flex items-center justify-center">
+                          <Store className="w-5 h-5 mr-2" />
+                          Register Store
+                        </div>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           {/* Error Display */}
           {error && (
@@ -904,9 +1151,14 @@ const X402PaymentApp = () => {
                           <span className="text-gray-400">Customer:</span>
                           <span className="text-green-300 font-mono">{paymentData.userWallet.slice(0,8)}...{paymentData.userWallet.slice(-6)}</span>
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex justify-between items-start">
                           <span className="text-gray-400">Merchant:</span>
-                          <span className="text-blue-300">{merchantInfo.name}</span>
+                          <div className="text-right">
+                            <span className="text-blue-300 block">{merchantInfo.name}</span>
+                            <span className="text-xs text-gray-500">
+                              {merchants.find(m => m.id === selectedMerchantId)?.category}
+                            </span>
+                          </div>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-400">Protocol:</span>
