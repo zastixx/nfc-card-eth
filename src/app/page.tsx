@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Nfc, CreditCard, ShoppingCart, CheckCircle, AlertCircle, Loader, Smartphone, Wallet, ExternalLink, DollarSign, Zap, Network, User, Settings, Store, Building2 } from 'lucide-react';
+import { Nfc, CreditCard, ShoppingCart, CheckCircle, AlertCircle, Loader, Smartphone, Wallet, ExternalLink, DollarSign, Zap, Network, User, Settings } from 'lucide-react';
 import { createThirdwebClient, getContract, prepareContractCall, sendTransaction } from "thirdweb";
 import { polygon, sepolia } from "thirdweb/chains";
 import { ConnectButton, useActiveAccount, useActiveWallet, useConnect, useDisconnect } from "thirdweb/react";
@@ -12,38 +12,13 @@ type PaymentData = {
   network?: string;
 };
 
-type Payment = {
-  id: string;
-  amount: string;
-  currency: string;
-  customerAddress: string;
-  timestamp: number;
-  transactionHash: string;
-};
-
-type Merchant = {
-  id: string;
-  name: string;
-  address: string;
-  description: string;
-  category: string;
-  logo?: string;
-  balance?: string;
-  payments?: Payment[];
-  isOwner?: boolean;
-};
-
 type MerchantInfo = {
-  id: string;
   name: string;
   address: string;
   orderId: string;
   amount: string;
   currency: string;
   x402Endpoint?: string;
-  description?: string;
-  category?: string;
-  logo?: string;
 };
 
 type NetworkConfig = {
@@ -94,132 +69,27 @@ const networks: { [key: string]: NetworkConfig } = {
   }
 };
 
+interface NDEFRecord {
+  recordType: string;
+  data: BufferSource;
+  mediaType?: string;
+}
+
+interface NDEFMessage {
+  records: NDEFRecord[];
+}
+
+interface NDEFReadingEvent extends Event {
+  message: NDEFMessage;
+}
+
 const X402PaymentApp = () => {
   const [nfcSupported, setNfcSupported] = useState(false);
   const [nfcReading, setNfcReading] = useState(false);
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [currentStep, setCurrentStep] = useState('scan');
   const [selectedNetwork, setSelectedNetwork] = useState<string>('polygonMumbai');
-  // Define the NDEFReadingEvent type
-  type NDEFReadingEvent = {
-    message: {
-      records: Array<{
-        recordType: string;
-        data: ArrayBuffer;
-      }>;
-    };
-  };
-
-  // Initialize merchant states
-  const [selectedMerchantId, setSelectedMerchantId] = useState('1');
-  const [showMerchantForm, setShowMerchantForm] = useState(false);
-  const [newMerchant, setNewMerchant] = useState<Merchant>({
-    id: '',
-    name: '',
-    address: '',
-    description: '',
-    category: 'Food & Beverages'
-  });
-  
-  // Initial merchants data
-  const initialMerchants = [
-    {
-      id: '1',
-      name: 'Web3 Coffee Shop',
-      address: '0x2fF9c787761Ff79a30574b51f1C83d21510Fbc0e',
-      description: 'Premium coffee and pastries',
-      category: 'Food & Beverages'
-    },
-    {
-      id: '2',
-      name: 'Crypto Tech Store',
-      address: '0x3eA9B0ab7785C85983b2F4F7eB2b0c723465098B',
-      description: 'Electronics and gadgets',
-      category: 'Technology'
-    },
-    {
-      id: '3',
-      name: 'NFT Art Gallery',
-      address: '0x4dB0C7749A3eF6d6c45d94D8049859465cD537B2',
-      description: 'Digital art and collectibles',
-      category: 'Art'
-    }
-  ];
-
-  // Merchants state with payments tracking
-  const [merchants, setMerchants] = useState<Merchant[]>(initialMerchants);
-  const [showMerchantDashboard, setShowMerchantDashboard] = useState(false);
-  const [myMerchantId, setMyMerchantId] = useState<string | null>(null);
-
-  // Update merchants when wallet connects/disconnects
-  useEffect(() => {
-    if (activeAccount) {
-      setMerchants(prev => prev.map(merchant => ({
-        ...merchant,
-        isOwner: merchant.address.toLowerCase() === activeAccount.address.toLowerCase(),
-        balance: merchant.address.toLowerCase() === activeAccount.address.toLowerCase() ? '0.0' : undefined
-      })));
-    } else {
-      setMerchants(prev => prev.map(merchant => ({
-        ...merchant,
-        isOwner: false,
-        balance: undefined
-      })));
-    }
-  }, [activeAccount]);
-
-  // Update merchant balance after successful payment
-  useEffect(() => {
-    if (transactionHash && merchantInfo && activeAccount) {
-      const amount = parseFloat(merchantInfo.amount);
-      setMerchants(prev => prev.map(merchant => {
-        if (merchant.address.toLowerCase() === merchantInfo.address.toLowerCase()) {
-          const currentBalance = parseFloat(merchant.balance || '0');
-          const newPayment: Payment = {
-            id: Date.now().toString(),
-            amount: merchantInfo.amount,
-            currency: merchantInfo.currency,
-            customerAddress: activeAccount.address,
-            timestamp: Date.now(),
-            transactionHash
-          };
-          return {
-            ...merchant,
-            balance: (currentBalance + amount).toString(),
-            payments: [...(merchant.payments || []), newPayment]
-          };
-        }
-        return merchant;
-      }));
-    }
-  }, [transactionHash]);
-
-  const handleMerchantSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeAccount) {
-      setError('Please connect your wallet first');
-      return;
-    }
-    
-    const newMerchantData = {
-      ...newMerchant,
-      id: (merchants.length + 1).toString(),
-      address: activeAccount.address
-    };
-    
-    setMerchants(prev => [...prev, newMerchantData]);
-    setShowMerchantForm(false);
-    setNewMerchant({
-      id: '',
-      name: '',
-      address: '',
-      description: '',
-      category: 'Food & Beverages'
-    });
-  };
-  
   const [merchantInfo, setMerchantInfo] = useState<MerchantInfo>({
-    id: '1',
     name: 'Web3 Coffee Shop',
     address: '0x2fF9c787761Ff79a30574b51f1C83d21510Fbc0e',
     orderId: '',
@@ -630,270 +500,6 @@ const X402PaymentApp = () => {
               </div>
             </div>
           </div>
-
-          {/* Marketplace Section */}
-          <div className="mt-8 max-w-4xl mx-auto">
-            <div className="bg-black/30 backdrop-blur-sm rounded-lg p-4 border border-purple-500/30">
-              <h3 className="text-xl font-bold text-white mb-4 flex items-center justify-center">
-                <Store className="w-5 h-5 mr-2" />
-                Web3 Marketplace
-              </h3>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {merchants.map((merchant) => (
-                  <button
-                    key={merchant.id}
-                    onClick={() => {
-                      setSelectedMerchantId(merchant.id);
-                      setMerchantInfo(prev => ({
-                        ...prev,
-                        id: merchant.id,
-                        name: merchant.name,
-                        address: merchant.address
-                      }));
-                    }}
-                    className={`${
-                      selectedMerchantId === merchant.id
-                        ? 'bg-gradient-to-r from-purple-600/50 to-blue-600/50 border-purple-500'
-                        : 'bg-black/40 hover:bg-black/60 border-gray-600'
-                    } p-4 rounded-lg border transition-all duration-200`}
-                  >
-                    <div className="flex items-center mb-2">
-                      <Building2 className={`w-5 h-5 ${
-                        selectedMerchantId === merchant.id ? 'text-purple-400' : 'text-gray-400'
-                      } mr-2`} />
-                      <h4 className="font-semibold text-white">{merchant.name}</h4>
-                    </div>
-                    <p className="text-sm text-gray-400 mb-2">{merchant.description}</p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs px-2 py-1 bg-blue-500/20 text-blue-300 rounded">
-                        {merchant.category}
-                      </span>
-                      {selectedMerchantId === merchant.id && (
-                        <span className="text-xs px-2 py-1 bg-green-500/20 text-green-300 rounded flex items-center">
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Selected
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {/* Merchant Actions */}
-              <div className="mt-4 flex justify-center gap-4">
-                <button
-                  onClick={() => setShowMerchantForm(true)}
-                  className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 inline-flex items-center"
-                >
-                  <Store className="w-4 h-4 mr-2" />
-                  Register as Merchant
-                </button>
-
-                {activeAccount && merchants.some(m => m.isOwner) && (
-                  <button
-                    onClick={() => setShowMerchantDashboard(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white rounded-lg transition-all duration-200 inline-flex items-center"
-                  >
-                    <DollarSign className="w-4 h-4 mr-2" />
-                    Merchant Dashboard
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Merchant Dashboard Modal */}
-          {showMerchantDashboard && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-gray-900 rounded-xl p-6 max-w-4xl w-full border border-green-500/30 shadow-2xl max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-bold text-white flex items-center">
-                    <DollarSign className="w-5 h-5 mr-2 text-green-400" />
-                    Merchant Dashboard
-                  </h3>
-                  <button
-                    onClick={() => setShowMerchantDashboard(false)}
-                    className="text-gray-400 hover:text-white"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                {merchants.filter(m => m.isOwner).map(merchant => (
-                  <div key={merchant.id} className="mb-6 last:mb-0">
-                    <div className="bg-black/40 rounded-lg p-4 mb-4">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h4 className="text-white font-semibold text-lg">{merchant.name}</h4>
-                          <p className="text-gray-400 text-sm">{merchant.category}</p>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-green-400 font-bold text-lg">
-                            {merchant.balance || '0.0'} {networks[selectedNetwork].currency}
-                          </div>
-                          <p className="text-gray-400 text-sm">Current Balance</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                        <div className="flex items-center">
-                          <Wallet className="w-4 h-4 text-blue-400 mr-2" />
-                          <span className="text-gray-300 font-mono text-sm">
-                            {merchant.address.slice(0, 8)}...{merchant.address.slice(-6)}
-                          </span>
-                        </div>
-                        <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs">
-                          Receiving Address
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Recent Transactions */}
-                    <div className="bg-black/40 rounded-lg p-4">
-                      <h5 className="text-white font-semibold mb-4 flex items-center">
-                        <ShoppingCart className="w-4 h-4 mr-2" />
-                        Recent Transactions
-                      </h5>
-                      
-                      {merchant.payments && merchant.payments.length > 0 ? (
-                        <div className="space-y-3">
-                          {merchant.payments.map(payment => (
-                            <div key={payment.id} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                              <div>
-                                <div className="text-white font-medium">
-                                  {payment.amount} {payment.currency}
-                                </div>
-                                <div className="text-gray-400 text-sm">
-                                  From: {payment.customerAddress.slice(0, 6)}...{payment.customerAddress.slice(-4)}
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-gray-400 text-sm">
-                                  {new Date(payment.timestamp).toLocaleDateString()}
-                                </div>
-                                <a
-                                  href={`${networks[selectedNetwork].explorerUrl}/tx/${payment.transactionHash}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-400 hover:text-blue-300 text-sm inline-flex items-center"
-                                >
-                                  View
-                                  <ExternalLink className="w-3 h-3 ml-1" />
-                                </a>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-6 text-gray-400">
-                          No transactions yet
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Merchant Registration Form Modal */}
-          {showMerchantForm && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full border border-purple-500/30 shadow-2xl">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-bold text-white flex items-center">
-                    <Store className="w-5 h-5 mr-2 text-purple-400" />
-                    Register New Merchant
-                  </h3>
-                  <button
-                    onClick={() => setShowMerchantForm(false)}
-                    className="text-gray-400 hover:text-white"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <form onSubmit={handleMerchantSubmit} className="space-y-4">
-                  <div>
-                    <label className="text-white text-sm font-semibold mb-2 block">
-                      Store Name
-                    </label>
-                    <input
-                      type="text"
-                      value={newMerchant.name}
-                      onChange={(e) => setNewMerchant(prev => ({ ...prev, name: e.target.value }))}
-                      placeholder="Enter your store name"
-                      required
-                      className="w-full px-4 py-2 bg-black/40 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-white text-sm font-semibold mb-2 block">
-                      Store Description
-                    </label>
-                    <textarea
-                      value={newMerchant.description}
-                      onChange={(e) => setNewMerchant(prev => ({ ...prev, description: e.target.value }))}
-                      placeholder="Describe your business"
-                      required
-                      className="w-full px-4 py-2 bg-black/40 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 h-24 resize-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-white text-sm font-semibold mb-2 block">
-                      Category
-                    </label>
-                    <select
-                      value={newMerchant.category}
-                      onChange={(e) => setNewMerchant(prev => ({ ...prev, category: e.target.value }))}
-                      className="w-full px-4 py-2 bg-black/40 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    >
-                      <option value="Food & Beverages">Food & Beverages</option>
-                      <option value="Technology">Technology</option>
-                      <option value="Art">Art</option>
-                      <option value="Fashion">Fashion</option>
-                      <option value="Services">Services</option>
-                      <option value="Entertainment">Entertainment</option>
-                    </select>
-                  </div>
-
-                  <div className="pt-4 border-t border-gray-700">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-gray-400">Connected Wallet:</span>
-                      {activeAccount ? (
-                        <span className="text-green-400 text-sm font-mono">
-                          {activeAccount.address.slice(0,6)}...{activeAccount.address.slice(-4)}
-                        </span>
-                      ) : (
-                        <span className="text-red-400 text-sm">Not Connected</span>
-                      )}
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={!activeAccount}
-                      className={`w-full py-3 rounded-lg font-bold transition-all duration-200 ${
-                        !activeAccount
-                          ? 'bg-gray-600 cursor-not-allowed text-gray-400'
-                          : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white'
-                      }`}
-                    >
-                      {!activeAccount ? (
-                        'Connect Wallet to Register'
-                      ) : (
-                        <div className="flex items-center justify-center">
-                          <Store className="w-5 h-5 mr-2" />
-                          Register Store
-                        </div>
-                      )}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
 
           {/* Error Display */}
           {error && (
@@ -1312,14 +918,9 @@ const X402PaymentApp = () => {
                           <span className="text-gray-400">Customer:</span>
                           <span className="text-green-300 font-mono">{paymentData.userWallet.slice(0,8)}...{paymentData.userWallet.slice(-6)}</span>
                         </div>
-                        <div className="flex justify-between items-start">
+                        <div className="flex justify-between">
                           <span className="text-gray-400">Merchant:</span>
-                          <div className="text-right">
-                            <span className="text-blue-300 block">{merchantInfo.name}</span>
-                            <span className="text-xs text-gray-500">
-                              {merchants.find(m => m.id === selectedMerchantId)?.category}
-                            </span>
-                          </div>
+                          <span className="text-blue-300">{merchantInfo.name}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-400">Protocol:</span>
