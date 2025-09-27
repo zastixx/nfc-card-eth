@@ -73,7 +73,7 @@ export default function Home() {
         {account && (
           <div className="w-full max-w-sm p-6 bg-zinc-900 rounded-lg shadow-lg">
             <h2 className="text-xl font-semibold text-center text-zinc-100 mb-6">
-              Send {sepolia.nativeCurrency.symbol}
+              Send {sepolia.nativeCurrency?.symbol ?? "ETH"}
             </h2>
             <div className="space-y-4">
               <label className="block">
@@ -136,7 +136,7 @@ function Header() {
         <span className="inline-block -skew-x-6 text-blue-500"> Web3</span>
       </h1>
       <p className="text-zinc-300 text-base">
-        Connect your wallet to send {sepolia.nativeCurrency.symbol}.
+        Connect your wallet to send {sepolia.nativeCurrency?.symbol ?? "ETH"}.
       </p>
     </header>
   );
