@@ -1,7 +1,6 @@
-// pages/index.tsx (or app/page.tsx for App Router)
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Nfc, CreditCard, ShoppingCart, CheckCircle, AlertCircle, Loader, Smartphone, Wallet, ExternalLink, DollarSign, Zap, Network } from 'lucide-react';
+import { Nfc, CreditCard, ShoppingCart, CheckCircle, AlertCircle, Loader, Smartphone, Wallet, ExternalLink, DollarSign, Zap, Network, User, Settings } from 'lucide-react';
 import { createThirdwebClient, getContract, prepareContractCall, sendTransaction } from "thirdweb";
 import { polygon, sepolia } from "thirdweb/chains";
 import { ConnectButton, useActiveAccount, useActiveWallet, useConnect, useDisconnect } from "thirdweb/react";
@@ -10,6 +9,7 @@ type PaymentData = {
   userWallet: string;
   merchantAddress: string;
   protocol?: string;
+  network?: string;
 };
 
 type MerchantInfo = {
@@ -19,13 +19,6 @@ type MerchantInfo = {
   amount: string;
   currency: string;
   x402Endpoint?: string;
-};
-
-type X402Response = {
-  success: boolean;
-  transactionHash?: string;
-  error?: string;
-  paymentId?: string;
 };
 
 type NetworkConfig = {
@@ -94,6 +87,8 @@ const X402PaymentApp = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [x402PaymentId, setX402PaymentId] = useState('');
   const [error, setError] = useState('');
+  const [isWritingNFC, setIsWritingNFC] = useState(false);
+  const [customerWalletForNFC, setCustomerWalletForNFC] = useState('');
 
   // Thirdweb hooks
   const activeAccount = useActiveAccount();
@@ -116,7 +111,8 @@ const X402PaymentApp = () => {
       setPaymentData({
         userWallet: walletFromUrl,
         merchantAddress: merchantFromUrl || merchantInfo.address,
-        protocol: protocolFromUrl || 'x402'
+        protocol: protocolFromUrl || 'x402',
+        network: networkFromUrl || selectedNetwork
       });
       
       if (networkFromUrl && networks[networkFromUrl]) {
@@ -141,7 +137,40 @@ const X402PaymentApp = () => {
     }));
   }, [selectedNetwork]);
 
-  // NFC Reading Function
+  // Auto-connect wallet when payment data is detected
+  useEffect(() => {
+    if (paymentData && !activeAccount) {
+      // Try to trigger wallet connection automatically
+      console.log('Payment data detected, attempting auto-connect...');
+      requestWalletConnection();
+    }
+  }, [paymentData, activeAccount]);
+
+  // Request wallet connection programmatically
+  const requestWalletConnection = async () => {
+    try {
+      if (typeof window !== 'undefined' && window.ethereum) {
+        // Request account access
+        const accounts = await window.ethereum.request({ 
+          method: 'eth_requestAccounts' 
+        });
+        
+        if (accounts.length > 0) {
+          console.log('Wallet connected automatically:', accounts[0]);
+          
+          // Switch to the correct network if needed
+          if (paymentData?.network && networks[paymentData.network]) {
+            await switchNetwork(paymentData.network);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Auto-connect failed:', error);
+      setError('Please connect your wallet manually to proceed');
+    }
+  };
+
+  // NFC Reading Function with improved parsing
   const startNFCReading = async () => {
     if (!nfcSupported) {
       alert('NFC is not supported on this device/browser');
@@ -152,109 +181,130 @@ const X402PaymentApp = () => {
       setNfcReading(true);
       setError('');
       
-      // @ts-ignore: NDEFReader is available in supporting browsers
       const ndef = new (window as any).NDEFReader();
       await ndef.scan();
       
-      console.log("NFC scan started successfully.");
-      
-      ndef.addEventListener("reading", (event: { message: { records: any[] } }) => {
-        const { message } = event;
-        console.log("NFC tag read:", message);
-        
-        for (const record of message.records) {
+      ndef.addEventListener("reading", async (event) => {
+        for (const record of event.message.records) {
           if (record.recordType === "url") {
             const decoder = new TextDecoder();
             const url = decoder.decode(record.data);
-            console.log("URL from NFC:", url);
-            
-            const urlObj = new URL(url);
-            const wallet = urlObj.searchParams.get('wallet');
-            const merchant = urlObj.searchParams.get('merchant');
-            const protocol = urlObj.searchParams.get('protocol');
-            const network = urlObj.searchParams.get('network') || 'polygon';
-            
-            if (wallet) {
-              setPaymentData({
-                userWallet: wallet,
-                merchantAddress: merchant || merchantInfo.address,
-                protocol: protocol || 'x402'
-              });
-              setSelectedNetwork(network);
-              setCurrentStep('payment');
-            }
-          } else if (record.recordType === "text") {
-            const decoder = new TextDecoder();
-            const text = decoder.decode(record.data);
-            console.log("Text from NFC:", text);
             
             try {
-              const data = JSON.parse(text);
-              if (data.wallet) {
+              const urlObj = new URL(url);
+              const wallet = urlObj.searchParams.get('wallet');
+              const merchant = urlObj.searchParams.get('merchant');
+              const network = urlObj.searchParams.get('network') || 'polygonMumbai';
+              
+              if (wallet) {
+                // Update payment data
                 setPaymentData({
-                  userWallet: data.wallet,
-                  merchantAddress: data.merchant || merchantInfo.address,
-                  protocol: data.protocol || 'x402'
+                  userWallet: wallet,
+                  merchantAddress: merchant || merchantInfo.address,
+                  protocol: 'x402'
                 });
-                setSelectedNetwork(data.network || 'polygon');
+                
+                // Set network
+                setSelectedNetwork(network);
+                
+                // Auto-connect wallet
+                if (!activeAccount && window.ethereum) {
+                  try {
+                    const accounts = await window.ethereum.request({
+                      method: 'eth_requestAccounts'
+                    });
+                    
+                    // Switch to correct network
+                    const networkConfig = networks[network];
+                    const chainIdHex = `0x${networkConfig.id.toString(16)}`;
+                    
+                    await window.ethereum.request({
+                      method: 'wallet_switchEthereumChain',
+                      params: [{ chainId: chainIdHex }],
+                    });
+                    
+                    console.log('Wallet connected:', accounts[0]);
+                  } catch (error) {
+                    console.error('Wallet connection failed:', error);
+                    setError('Please connect your wallet manually');
+                  }
+                }
+                
                 setCurrentStep('payment');
               }
-            } catch {
-              console.log("NFC text is not JSON");
+            } catch (e) {
+              console.error('Invalid URL data:', e);
+              setError('Invalid NFC card data');
             }
           }
         }
-        
         setNfcReading(false);
-      });
-
-      ndef.addEventListener("readingerror", () => {
-        console.log("Cannot read data from the NFC tag.");
-        setNfcReading(false);
-        setError("Failed to read NFC tag");
       });
 
     } catch (error) {
-      console.log("Error starting NFC scan:", error);
+      console.error('NFC Error:', error);
       setNfcReading(false);
-      
-      // Demo simulation
-      setTimeout(() => {
-        setPaymentData({
-          userWallet: '0xD450060963E63cD0C76d3c113CcB9179fc7fd7cE',
-          merchantAddress: merchantInfo.address,
-          protocol: 'x402'
-        });
-        setCurrentStep('payment');
-        setNfcReading(false);
-      }, 2000);
+      setError('NFC read failed');
     }
   };
 
-  // Write NFC Tag
+  // Write NFC Tag with customer wallet address
   const writeNFCTag = async () => {
     if (!nfcSupported) {
       alert('NFC is not supported on this device/browser');
       return;
     }
 
+    if (!customerWalletForNFC.trim()) {
+      setError('Please enter customer wallet address first');
+      return;
+    }
+
+    // Validate wallet address format
+    if (!/^0x[a-fA-F0-9]{40}$/.test(customerWalletForNFC.trim())) {
+      setError('Invalid wallet address format');
+      return;
+    }
+
+    setIsWritingNFC(true);
+    setError('');
+
     try {
       // @ts-ignore: NDEFReader is available in supporting browsers
       const ndef = new (window as any).NDEFReader();
       
+      const customerWallet = customerWalletForNFC.trim();
       const baseUrl = `${window.location.origin}`;
-      const paymentUrl = `${baseUrl}?wallet=0xD450060963E63cD0C76d3c113CcB9179fc7fd7cE&merchant=${merchantInfo.address}&protocol=x402&network=${selectedNetwork}`;
+      const paymentUrl = `${baseUrl}?wallet=${customerWallet}&merchant=${merchantInfo.address}&protocol=x402&network=${selectedNetwork}`;
       
+      // Create comprehensive payment data
       const x402PaymentData = {
-        wallet: "0xD450060963E63cD0C76d3c113CcB9179fc7fd7cE",
+        // Primary data
+        customerWallet: customerWallet,
+        wallet: customerWallet, // Backup field
         merchant: merchantInfo.address,
+        merchantName: merchantInfo.name,
         protocol: "x402",
-        chain: selectedNetwork,
         network: selectedNetwork,
-        type: "web3-payment-card",
-        version: "1.0",
-        features: ["instant-settlement", "micropayments", "agentic"]
+        
+        // Metadata
+        type: "x402-payment-card",
+        version: "1.1",
+        created: new Date().toISOString(),
+        chain: selectedNetwork,
+        chainId: networks[selectedNetwork].id,
+        currency: networks[selectedNetwork].currency,
+        
+        // Features
+        features: [
+          "instant-settlement", 
+          "micropayments", 
+          "multi-chain",
+          "auto-connect"
+        ]
       };
+      
+      console.log('Writing NFC with data:', x402PaymentData);
       
       await ndef.write({
         records: [
@@ -263,11 +313,16 @@ const X402PaymentApp = () => {
         ]
       });
       
-      alert("x402-enabled NFC payment card created successfully!");
+      setIsWritingNFC(false);
+      alert("✅ x402 Payment Card Created Successfully!\n\nCustomer: " + customerWallet.slice(0,8) + "..." + customerWallet.slice(-6) + "\nMerchant: " + merchantInfo.name + "\nNetwork: " + networks[selectedNetwork].name);
       
-    } catch (error) {
+      // Clear the input
+      setCustomerWalletForNFC('');
+      
+    } catch (error: any) {
       console.log("Error writing NFC tag:", error);
-      alert("Error writing to NFC tag. Make sure you have a writable NTAG card nearby.");
+      setIsWritingNFC(false);
+      setError(error.message || "Error writing to NFC tag. Make sure you have a writable NTAG card nearby.");
     }
   };
 
@@ -300,7 +355,8 @@ const X402PaymentApp = () => {
         to: merchantInfo.address,
         value: merchantInfo.amount + ' ' + networkConfig.currency,
         valueInWei: amountInWei.toString(),
-        chain: networkConfig.name
+        chain: networkConfig.name,
+        from: activeAccount.address
       });
 
       // Send native token transaction
@@ -327,7 +383,7 @@ const X402PaymentApp = () => {
 
   // Switch network in wallet
   const switchNetwork = async (networkKey: string) => {
-    if (!activeWallet || !window.ethereum) return;
+    if (!window.ethereum) return;
     
     try {
       const networkConfig = networks[networkKey];
@@ -406,6 +462,7 @@ const X402PaymentApp = () => {
             <span className="px-3 py-1 bg-purple-600/50 rounded-full text-purple-200 whitespace-nowrap">Thirdweb v5</span>
             <span className="px-3 py-1 bg-green-600/50 rounded-full text-green-200 whitespace-nowrap">Multi-Chain</span>
             <span className="px-3 py-1 bg-blue-600/50 rounded-full text-blue-200 whitespace-nowrap">NFC Enabled</span>
+            <span className="px-3 py-1 bg-orange-600/50 rounded-full text-orange-200 whitespace-nowrap">Auto-Connect</span>
           </div>
           
           {/* Network Selector */}
@@ -433,7 +490,8 @@ const X402PaymentApp = () => {
           {/* Error Display */}
           {error && (
             <div className="mt-4 p-3 bg-red-500/20 rounded-lg border border-red-500/50 max-w-md mx-auto">
-              <p className="text-red-300 text-sm">{error}</p>
+              <AlertCircle className="w-4 h-4 inline mr-2 text-red-400" />
+              <span className="text-red-300 text-sm">{error}</span>
             </div>
           )}
 
@@ -536,23 +594,65 @@ const X402PaymentApp = () => {
                 </button>
               </div>
 
-              {/* Demo Tools */}
+              {/* NFC Card Creation Tools */}
               <div className="border-t border-gray-600 pt-6">
-                <h3 className="text-lg font-semibold text-white mb-4">Demo Tools</h3>
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                  <Settings className="w-5 h-5 mr-2" />
+                  Create NFC Payment Card
+                </h3>
+                
+                {/* Customer Wallet Input */}
+                <div className="mb-4">
+                  <label className="text-white text-sm font-semibold mb-2 block flex items-center">
+                    <User className="w-4 h-4 mr-2" />
+                    Customer Wallet Address
+                  </label>
+                  <input
+                    type="text"
+                    value={customerWalletForNFC}
+                    onChange={(e) => setCustomerWalletForNFC(e.target.value)}
+                    placeholder="0x... (customer's wallet address)"
+                    className="w-full px-4 py-3 bg-black/40 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                  />
+                  <p className="text-gray-400 text-xs mt-1">
+                    This will be written to the NFC card for the customer
+                  </p>
+                </div>
+
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <button
                     onClick={writeNFCTag}
-                    className="flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg transition-colors text-sm font-semibold whitespace-nowrap"
+                    disabled={isWritingNFC || !customerWalletForNFC.trim()}
+                    className={`flex-1 px-4 py-3 rounded-lg transition-colors text-sm font-semibold whitespace-nowrap ${
+                      isWritingNFC || !customerWalletForNFC.trim()
+                        ? 'bg-gray-600 cursor-not-allowed text-gray-400'
+                        : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white'
+                    }`}
                   >
-                    Write x402 NFC Card
+                    {isWritingNFC ? (
+                      <div className="flex items-center justify-center">
+                        <Loader className="w-4 h-4 mr-2 animate-spin" />
+                        Writing NFC...
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center">
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Write x402 NFC Card
+                      </div>
+                    )}
                   </button>
+                  
                   <button
                     onClick={() => {
-                      setPaymentData({
-                        userWallet: '0xD450060963E63cD0C76d3c113CcB9179fc7fd7cE',
+                      const demoAddress = '0xD450060963E63cD0C76d3c113CcB9179fc7fd7cE';
+                      const demoPaymentData = {
+                        userWallet: demoAddress,
                         merchantAddress: merchantInfo.address,
-                        protocol: 'x402'
-                      });
+                        protocol: 'x402',
+                        network: selectedNetwork
+                      };
+                      
+                      setPaymentData(demoPaymentData);
                       setCurrentStep('payment');
                     }}
                     className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-colors text-sm font-semibold whitespace-nowrap"
@@ -560,6 +660,10 @@ const X402PaymentApp = () => {
                     Simulate x402 Tap
                   </button>
                 </div>
+                
+                <p className="text-gray-400 text-xs text-center mt-2">
+                  💡 Real NFC card will auto-connect customer wallet to this merchant terminal
+                </p>
               </div>
             </div>
           )}
@@ -583,7 +687,10 @@ const X402PaymentApp = () => {
               {/* Customer Wallet */}
               {paymentData && (
                 <div className="bg-black/40 rounded-lg p-4 mb-6">
-                  <label className="text-green-400 text-sm font-semibold">Customer Wallet (from NFC)</label>
+                  <label className="text-green-400 text-sm font-semibold flex items-center">
+                    <User className="w-4 h-4 mr-1" />
+                    Customer Wallet (from NFC)
+                  </label>
                   <div className="flex items-center mt-2 w-full">
                     <Wallet className="w-5 h-5 text-green-400 mr-2 flex-shrink-0" />
                     <div className="overflow-hidden">
@@ -592,7 +699,20 @@ const X402PaymentApp = () => {
                       </p>
                     </div>
                   </div>
-                  <p className="text-gray-400 text-xs mt-1">Connected to {networks[selectedNetwork].name}</p>
+                  <div className="flex justify-between items-center mt-2">
+                    <p className="text-gray-400 text-xs">Connected to {networks[selectedNetwork].name}</p>
+                    {paymentData.userWallet === activeAccount?.address ? (
+                      <span className="px-2 py-1 bg-green-500/20 rounded text-green-300 text-xs flex items-center">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Wallet Connected
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 bg-yellow-500/20 rounded text-yellow-300 text-xs flex items-center">
+                        <AlertCircle className="w-3 h-3 mr-1" />
+                        Connect Required
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -638,6 +758,22 @@ const X402PaymentApp = () => {
                   />
                 </div>
               </div>
+
+              {/* Wallet Connection Status */}
+              {paymentData && paymentData.userWallet !== activeAccount?.address && (
+                <div className="bg-yellow-500/20 rounded-lg p-4 mb-6 border border-yellow-500/30">
+                  <div className="flex items-center mb-2">
+                    <AlertCircle className="w-5 h-5 text-yellow-400 mr-2" />
+                    <span className="text-yellow-300 font-semibold">Wallet Connection Required</span>
+                  </div>
+                  <p className="text-yellow-200 text-sm mb-3">
+                    The NFC card belongs to: <span className="font-mono">{paymentData.userWallet.slice(0,8)}...{paymentData.userWallet.slice(-6)}</span>
+                  </p>
+                  <p className="text-yellow-200 text-sm">
+                    Please connect this wallet or ask the customer to approve the transaction.
+                  </p>
+                </div>
+              )}
 
               {/* Payment Button */}
               <button
@@ -696,6 +832,31 @@ const X402PaymentApp = () => {
                 </div>
                 <p className="text-yellow-400 font-semibold">Processing transaction on {networks[selectedNetwork].name}...</p>
                 <p className="text-gray-400 text-sm">Please confirm in your wallet if prompted</p>
+                
+                {/* Transaction Details */}
+                {paymentData && merchantInfo.amount && (
+                  <div className="bg-black/40 rounded-lg p-4 mt-6">
+                    <h4 className="text-white font-semibold mb-3">Transaction Details</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">From:</span>
+                        <span className="text-white font-mono">{activeAccount?.address.slice(0,8)}...{activeAccount?.address.slice(-6)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">To:</span>
+                        <span className="text-white font-mono">{merchantInfo.address.slice(0,8)}...{merchantInfo.address.slice(-6)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Amount:</span>
+                        <span className="text-white font-semibold">{merchantInfo.amount} {networks[selectedNetwork].currency}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Network:</span>
+                        <span className="text-white">{networks[selectedNetwork].name}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -721,15 +882,39 @@ const X402PaymentApp = () => {
                 <div className="bg-black/40 rounded-lg p-6 mb-6">
                   <p className="text-gray-400 text-sm mb-2">Transaction Hash:</p>
                   <div className="flex items-center justify-center mb-4">
-                    <p className="text-blue-400 font-mono text-sm mr-2">{transactionHash.slice(0, 20)}...{transactionHash.slice(-10)}</p>
-                    <ExternalLink className="w-4 h-4 text-blue-400" />
+                    <p className="text-blue-400 font-mono text-sm mr-2 break-all">{transactionHash.slice(0, 20)}...{transactionHash.slice(-10)}</p>
+                    <ExternalLink className="w-4 h-4 text-blue-400 flex-shrink-0" />
                   </div>
                   
-                  <div className="mt-4 pt-4 border-t border-gray-600">
+                  {/* Customer & Payment Info */}
+                  {paymentData && (
+                    <div className="border-t border-gray-600 pt-4 mb-4">
+                      <h4 className="text-white font-semibold mb-2">Payment Summary</h4>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">Customer:</span>
+                          <span className="text-green-300 font-mono">{paymentData.userWallet.slice(0,8)}...{paymentData.userWallet.slice(-6)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">Merchant:</span>
+                          <span className="text-blue-300">{merchantInfo.name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">Protocol:</span>
+                          <span className="text-purple-300">x402</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="pt-4 border-t border-gray-600">
                     <p className="text-white font-semibold">{merchantInfo.amount} {networks[selectedNetwork].currency} sent to {merchantInfo.name}</p>
                     <p className="text-gray-400 text-sm">Network: {networks[selectedNetwork].name}</p>
                     {merchantInfo.orderId && (
                       <p className="text-gray-400 text-sm">Order: {merchantInfo.orderId}</p>
+                    )}
+                    {x402PaymentId && (
+                      <p className="text-gray-400 text-sm">x402 ID: {x402PaymentId}</p>
                     )}
                   </div>
                 </div>
@@ -764,12 +949,32 @@ const X402PaymentApp = () => {
               </div>
             </div>
             <p className="text-gray-400 text-sm mb-2">
-              Multi-chain payments • NFC Integration • TypeScript
+              Multi-chain payments • NFC Integration • Auto-Connect • TypeScript
             </p>
             <div className="flex flex-wrap justify-center gap-2 text-xs">
               <span className="px-2 py-1 bg-purple-600/30 rounded text-purple-300 whitespace-nowrap">Polygon</span>
               <span className="px-2 py-1 bg-blue-600/30 rounded text-blue-300 whitespace-nowrap">Sepolia</span>
               <span className="px-2 py-1 bg-green-600/30 rounded text-green-300 whitespace-nowrap">Native Tokens</span>
+              <span className="px-2 py-1 bg-orange-600/30 rounded text-orange-300 whitespace-nowrap">x402 Protocol</span>
+            </div>
+            
+            {/* Quick Guide */}
+            <div className="mt-4 pt-4 border-t border-gray-500/20">
+              <h4 className="text-white font-semibold text-sm mb-2">How it works:</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-gray-300">
+                <div className="flex items-center">
+                  <span className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold mr-2">1</span>
+                  Write customer wallet to NFC
+                </div>
+                <div className="flex items-center">
+                  <span className="w-5 h-5 bg-purple-600 rounded-full flex items-center justify-center text-white font-bold mr-2">2</span>
+                  Customer taps NFC card
+                </div>
+                <div className="flex items-center">
+                  <span className="w-5 h-5 bg-green-600 rounded-full flex items-center justify-center text-white font-bold mr-2">3</span>
+                  Auto-connect & pay
+                </div>
+              </div>
             </div>
           </div>
         </footer>
