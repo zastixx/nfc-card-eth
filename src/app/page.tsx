@@ -643,10 +643,15 @@ const X402PaymentApp = () => {
                   </button>
                   
                   <button
-                    onClick={() => {
-                      const demoAddress = '0xD450060963E63cD0C76d3c113CcB9179fc7fd7cE';
+                    onClick={async () => {
+                      // Only proceed if wallet is connected
+                      if (!activeAccount) {
+                        setError('Please connect your wallet first to simulate a tap');
+                        return;
+                      }
+                      
                       const demoPaymentData = {
-                        userWallet: demoAddress,
+                        userWallet: activeAccount.address,
                         merchantAddress: merchantInfo.address,
                         protocol: 'x402',
                         network: selectedNetwork
@@ -655,7 +660,11 @@ const X402PaymentApp = () => {
                       setPaymentData(demoPaymentData);
                       setCurrentStep('payment');
                     }}
-                    className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-colors text-sm font-semibold whitespace-nowrap"
+                    disabled={!activeAccount}
+                    className={`flex-1 px-4 py-2 ${!activeAccount 
+                      ? 'bg-gray-600 cursor-not-allowed' 
+                      : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700'
+                    } text-white rounded-lg transition-colors text-sm font-semibold whitespace-nowrap`}
                   >
                     Simulate x402 Tap
                   </button>
