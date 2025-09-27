@@ -12,6 +12,15 @@ type PaymentData = {
   network?: string;
 };
 
+type Payment = {
+  id: string;
+  amount: string;
+  currency: string;
+  customerAddress: string;
+  timestamp: number;
+  transactionHash: string;
+};
+
 type Merchant = {
   id: string;
   name: string;
@@ -19,6 +28,9 @@ type Merchant = {
   description: string;
   category: string;
   logo?: string;
+  balance?: string;
+  payments?: Payment[];
+  isOwner?: boolean;
 };
 
 type MerchantInfo = {
@@ -134,8 +146,53 @@ const X402PaymentApp = () => {
     }
   ];
 
-  // Merchants state
+  // Merchants state with payments tracking
   const [merchants, setMerchants] = useState<Merchant[]>(initialMerchants);
+  const [showMerchantDashboard, setShowMerchantDashboard] = useState(false);
+  const [myMerchantId, setMyMerchantId] = useState<string | null>(null);
+
+  // Update merchants when wallet connects/disconnects
+  useEffect(() => {
+    if (activeAccount) {
+      setMerchants(prev => prev.map(merchant => ({
+        ...merchant,
+        isOwner: merchant.address.toLowerCase() === activeAccount.address.toLowerCase(),
+        balance: merchant.address.toLowerCase() === activeAccount.address.toLowerCase() ? '0.0' : undefined
+      })));
+    } else {
+      setMerchants(prev => prev.map(merchant => ({
+        ...merchant,
+        isOwner: false,
+        balance: undefined
+      })));
+    }
+  }, [activeAccount]);
+
+  // Update merchant balance after successful payment
+  useEffect(() => {
+    if (transactionHash && merchantInfo && activeAccount) {
+      const amount = parseFloat(merchantInfo.amount);
+      setMerchants(prev => prev.map(merchant => {
+        if (merchant.address.toLowerCase() === merchantInfo.address.toLowerCase()) {
+          const currentBalance = parseFloat(merchant.balance || '0');
+          const newPayment: Payment = {
+            id: Date.now().toString(),
+            amount: merchantInfo.amount,
+            currency: merchantInfo.currency,
+            customerAddress: activeAccount.address,
+            timestamp: Date.now(),
+            transactionHash
+          };
+          return {
+            ...merchant,
+            balance: (currentBalance + amount).toString(),
+            payments: [...(merchant.payments || []), newPayment]
+          };
+        }
+        return merchant;
+      }));
+    }
+  }, [transactionHash]);
 
   const handleMerchantSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -623,8 +680,8 @@ const X402PaymentApp = () => {
                 ))}
               </div>
 
-              {/* Register Merchant Button */}
-              <div className="mt-4 text-center">
+              {/* Merchant Actions */}
+              <div className="mt-4 flex justify-center gap-4">
                 <button
                   onClick={() => setShowMerchantForm(true)}
                   className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 inline-flex items-center"
@@ -632,9 +689,113 @@ const X402PaymentApp = () => {
                   <Store className="w-4 h-4 mr-2" />
                   Register as Merchant
                 </button>
+
+                {activeAccount && merchants.some(m => m.isOwner) && (
+                  <button
+                    onClick={() => setShowMerchantDashboard(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white rounded-lg transition-all duration-200 inline-flex items-center"
+                  >
+                    <DollarSign className="w-4 h-4 mr-2" />
+                    Merchant Dashboard
+                  </button>
+                )}
               </div>
             </div>
           </div>
+
+          {/* Merchant Dashboard Modal */}
+          {showMerchantDashboard && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-gray-900 rounded-xl p-6 max-w-4xl w-full border border-green-500/30 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold text-white flex items-center">
+                    <DollarSign className="w-5 h-5 mr-2 text-green-400" />
+                    Merchant Dashboard
+                  </h3>
+                  <button
+                    onClick={() => setShowMerchantDashboard(false)}
+                    className="text-gray-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {merchants.filter(m => m.isOwner).map(merchant => (
+                  <div key={merchant.id} className="mb-6 last:mb-0">
+                    <div className="bg-black/40 rounded-lg p-4 mb-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h4 className="text-white font-semibold text-lg">{merchant.name}</h4>
+                          <p className="text-gray-400 text-sm">{merchant.category}</p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-green-400 font-bold text-lg">
+                            {merchant.balance || '0.0'} {networks[selectedNetwork].currency}
+                          </div>
+                          <p className="text-gray-400 text-sm">Current Balance</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                        <div className="flex items-center">
+                          <Wallet className="w-4 h-4 text-blue-400 mr-2" />
+                          <span className="text-gray-300 font-mono text-sm">
+                            {merchant.address.slice(0, 8)}...{merchant.address.slice(-6)}
+                          </span>
+                        </div>
+                        <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs">
+                          Receiving Address
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Recent Transactions */}
+                    <div className="bg-black/40 rounded-lg p-4">
+                      <h5 className="text-white font-semibold mb-4 flex items-center">
+                        <ShoppingCart className="w-4 h-4 mr-2" />
+                        Recent Transactions
+                      </h5>
+                      
+                      {merchant.payments && merchant.payments.length > 0 ? (
+                        <div className="space-y-3">
+                          {merchant.payments.map(payment => (
+                            <div key={payment.id} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                              <div>
+                                <div className="text-white font-medium">
+                                  {payment.amount} {payment.currency}
+                                </div>
+                                <div className="text-gray-400 text-sm">
+                                  From: {payment.customerAddress.slice(0, 6)}...{payment.customerAddress.slice(-4)}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-gray-400 text-sm">
+                                  {new Date(payment.timestamp).toLocaleDateString()}
+                                </div>
+                                <a
+                                  href={`${networks[selectedNetwork].explorerUrl}/tx/${payment.transactionHash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-400 hover:text-blue-300 text-sm inline-flex items-center"
+                                >
+                                  View
+                                  <ExternalLink className="w-3 h-3 ml-1" />
+                                </a>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-gray-400">
+                          No transactions yet
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Merchant Registration Form Modal */}
           {showMerchantForm && (
