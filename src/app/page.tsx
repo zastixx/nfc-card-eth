@@ -36,35 +36,58 @@ const client = createThirdwebClient({
 
 // Network configurations
 const networks: { [key: string]: NetworkConfig } = {
-  polygonMumbai: {
-    id: 80001,
-    name: "Polygon Mumbai",
+  polygonAmoy: {
+    id: 80002,
+    name: "Polygon Amoy Testnet",  // Updated name
     currency: "MATIC",
     chain: {
-      ...polygon,
-      id: 80001,
-      name: "Mumbai",
+      id: 80002,
+      name: "Polygon Amoy Testnet",
+      network: "amoy",
       nativeCurrency: {
         name: "MATIC",
         symbol: "MATIC",
         decimals: 18
       },
-      rpc: ["https://rpc-mumbai.maticvigil.com/"],
+      rpc: ["https://rpc-amoy.polygon.technology/"],  // Updated RPC URL
       blockExplorers: {
         default: {
-          name: "Mumbai Polygonscan",
-          url: "https://mumbai.polygonscan.com"
+          name: "Amoy PolygonScan",
+          url: "https://amoy.polygonscan.com"  // Updated explorer URL
         }
       },
-      testnet: true
+      testnet: true,
+      // Required Thirdweb properties
+      chain: "Polygon",
+      slug: "polygon-amoy"
     },
-    explorerUrl: "https://mumbai.polygonscan.com"
+    explorerUrl: "https://amoy.polygonscan.com"  // Updated explorer URL
   },
   sepolia: {
     id: 11155111,
     name: "Sepolia Testnet",
     currency: "SepoliaETH",
-    chain: sepolia,
+    chain: {
+      id: 11155111,
+      name: "Sepolia",
+      network: "sepolia",
+      nativeCurrency: {
+        name: "Sepolia Ether",
+        symbol: "SepoliaETH",
+        decimals: 18
+      },
+      rpc: ["https://rpc.sepolia.org"],
+      blockExplorers: {
+        default: {
+          name: "Sepolia Explorer",
+          url: "https://sepolia.etherscan.io"
+        }
+      },
+      testnet: true,
+      // Add required properties for Thirdweb
+      chain: "Ethereum",
+      slug: "sepolia"
+    },
     explorerUrl: "https://sepolia.etherscan.io"
   }
 };
@@ -88,10 +111,10 @@ const X402PaymentApp = () => {
   const [nfcReading, setNfcReading] = useState(false);
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [currentStep, setCurrentStep] = useState('scan');
-  const [selectedNetwork, setSelectedNetwork] = useState<string>('polygonMumbai');
+  const [selectedNetwork, setSelectedNetwork] = useState<string>('polygonAmoy');  // Changed from 'polygonMumbai'
   const [merchantInfo, setMerchantInfo] = useState<MerchantInfo>({
     name: 'Web3 Coffee Shop',
-    address: '0x2fF9c787761Ff79a30574b51f1C83d21510Fbc0e',
+    address: '0xD450060963E63cD0C76d3c113CcB9179fc7fd7cE',
     orderId: '',
     amount: '',
     currency: 'MATIC',
@@ -420,7 +443,7 @@ const X402PaymentApp = () => {
                 chainName: networkConfig.chain.name,
                 nativeCurrency: networkConfig.chain.nativeCurrency,
                 rpcUrls: networkConfig.chain.rpc,
-                blockExplorerUrls: [networkConfig.explorerUrl]
+                blockExplorerUrls: [networkConfig.chain.blockExplorers.default.url]
               }]
             });
           } catch (addError) {
@@ -533,7 +556,7 @@ const X402PaymentApp = () => {
                   titleIcon: "",
                   showThirdwebBranding: false,
                 }}
-                chains={[networks.polygonMumbai.chain, networks.sepolia.chain]}
+                chains={[networks.polygonAmoy.chain, networks.sepolia.chain]}  // Updated here
                 switchButton={{
                   label: "Switch Network",
                   style: {
